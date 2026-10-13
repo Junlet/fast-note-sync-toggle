@@ -20,7 +20,14 @@
  * changed -- so the button cannot go stale.
  */
 
-import { Notice, Plugin, setIcon, type View, type WorkspaceLeaf } from "obsidian";
+import {
+	Notice,
+	Platform,
+	Plugin,
+	setIcon,
+	type View,
+	type WorkspaceLeaf,
+} from "obsidian";
 import { FNS_PLUGIN_ID, readMode, writeMode, type SyncMode } from "./fns";
 import {
 	DEFAULT_SETTINGS,
@@ -289,14 +296,21 @@ export default class FastNoteSyncTogglePlugin extends Plugin {
 
 	/** Creates or removes the status bar item to match the setting. */
 	private ensureStatusBar(): void {
-		if (this.settings.showStatusBar && !this.statusBarEl) {
+		// Obsidian hides the whole status bar on mobile -- its own stylesheet has
+		// `.is-mobile .status-bar { display: none }` -- so an item added there
+		// would exist in the DOM and never be seen. Skipping it keeps the setting
+		// honest on iPad and phones while leaving the stored value alone, so a
+		// vault synced from a desktop keeps its choice.
+		const wanted = this.settings.showStatusBar && !Platform.isMobile;
+
+		if (wanted && !this.statusBarEl) {
 			const el = this.addStatusBarItem();
 			el.addClass(STATUS_CLASS);
 			el.onClickEvent(() => void this.toggle());
 			// Force the next paint; the element is brand new.
 			this.painted = null;
 			this.statusBarEl = el;
-		} else if (!this.settings.showStatusBar && this.statusBarEl) {
+		} else if (!wanted && this.statusBarEl) {
 			this.statusBarEl.remove();
 			this.statusBarEl = null;
 		}

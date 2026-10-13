@@ -7,7 +7,7 @@
  * reaching the DOM.
  */
 
-import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, Platform, PluginSettingTab, Setting } from "obsidian";
 import { FNS_PLUGIN_ID, getFastNoteSync } from "./fns";
 import type FastNoteSyncTogglePlugin from "./main";
 
@@ -163,13 +163,21 @@ export class ToggleSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("在状态栏也显示")
-			.setDesc("状态栏在窗口底部，会显示成「只读同步：开 / 关」，点击同样可以切换。")
+			.setDesc(
+				Platform.isMobile
+					? "移动端（iPad / 手机）的 Obsidian 没有状态栏（它自己的样式里就把状态栏隐藏了），" +
+							"所以这一项在移动端不会生效。这里显示的是桌面端的设置值，会原样保留。"
+					: "状态栏在窗口底部，会显示成「只读同步：开 / 关」，点击同样可以切换。"
+			)
 			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.showStatusBar).onChange(async (value) => {
-					this.plugin.settings.showStatusBar = value;
-					await this.plugin.saveSettings();
-					this.plugin.refresh();
-				})
+				toggle
+					.setValue(this.plugin.settings.showStatusBar)
+					.setDisabled(Platform.isMobile)
+					.onChange(async (value) => {
+						this.plugin.settings.showStatusBar = value;
+						await this.plugin.saveSettings();
+						this.plugin.refresh();
+					})
 			);
 
 		new Setting(containerEl)

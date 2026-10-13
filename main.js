@@ -129,8 +129,10 @@ var ToggleSettingTab = class extends import_obsidian.PluginSettingTab {
         );
       }
     }
-    new import_obsidian.Setting(containerEl).setName("在状态栏也显示").setDesc("状态栏在窗口底部，会显示成「只读同步：开 / 关」，点击同样可以切换。").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.showStatusBar).onChange(async (value) => {
+    new import_obsidian.Setting(containerEl).setName("在状态栏也显示").setDesc(
+      import_obsidian.Platform.isMobile ? "移动端（iPad / 手机）的 Obsidian 没有状态栏（它自己的样式里就把状态栏隐藏了），所以这一项在移动端不会生效。这里显示的是桌面端的设置值，会原样保留。" : "状态栏在窗口底部，会显示成「只读同步：开 / 关」，点击同样可以切换。"
+    ).addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.showStatusBar).setDisabled(import_obsidian.Platform.isMobile).onChange(async (value) => {
         this.plugin.settings.showStatusBar = value;
         await this.plugin.saveSettings();
         this.plugin.refresh();
@@ -336,13 +338,14 @@ var FastNoteSyncTogglePlugin = class extends import_obsidian2.Plugin {
   }
   /** Creates or removes the status bar item to match the setting. */
   ensureStatusBar() {
-    if (this.settings.showStatusBar && !this.statusBarEl) {
+    const wanted = this.settings.showStatusBar && !import_obsidian2.Platform.isMobile;
+    if (wanted && !this.statusBarEl) {
       const el = this.addStatusBarItem();
       el.addClass(STATUS_CLASS);
       el.onClickEvent(() => void this.toggle());
       this.painted = null;
       this.statusBarEl = el;
-    } else if (!this.settings.showStatusBar && this.statusBarEl) {
+    } else if (!wanted && this.statusBarEl) {
       this.statusBarEl.remove();
       this.statusBarEl = null;
     }

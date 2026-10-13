@@ -81,6 +81,23 @@ Fast Note Sync 自己的设置页里拨这个开关时，调的是 `saveAndReloa
 
 所以这里**每秒读一次那个布尔值**（一次属性读取，成本可忽略），只有值真的变了才碰 DOM。因此图标**不会过期**。
 
+### iPad / 手机能用吗
+
+**能。** 插件只用了 Obsidian 跨平台的 API，没有碰任何桌面专属的东西（无 `electron`、无 `node:fs`、无 `process`，产物里唯一的 `require` 是 `obsidian` 本身）。逐项对照：
+
+| 功能 | iPad / 手机 |
+|---|---|
+| 三条命令（命令面板） | ✅ |
+| 页面右上角的锁图标 | ✅ |
+| 状态栏开关 | ❌ 移动端没有状态栏 |
+| 快捷键 | ❌ 没有实体键盘（外接键盘可用） |
+
+**状态栏那一项**：Obsidian 自己的样式里写着 `.is-mobile .status-bar { display: none }` —— 移动端整个状态栏是隐藏的。所以插件在移动端**根本不创建**那个元素，设置页里这一项会显示为**禁用**并说明原因，而不是让你打开一个毫无反应的开关。你在桌面端设的值会**原样保留**，回到桌面照样生效。
+
+> **页首按钮为什么在 iPad 上能显示**：Obsidian 的样式里有 `.is-mobile .view-actions { justify-content: flex-end; … }` 与 `.is-tablet .view-actions { --raised: none; }`，说明按钮栏在移动端是正常渲染的。
+
+**依赖方面**：Fast Note Sync 本身支持移动端（它的 manifest 里 `isDesktopOnly` 为 `false`，并且自带移动端的状态点与提示位置设置）。它没装/没启用时，本插件在 iPad 上同样只是显示成「不可用」。
+
 ### 依赖
 
 | 依赖 | 说明 |
@@ -111,6 +128,10 @@ Fast Note Sync's **read-only sync mode** decides whether this device may upload 
 It reaches Fast Note Sync through `app.plugins.plugins["fast-note-sync"]` — the same route that plugin itself uses to reach others — and imports nothing from it, so this plugin loads and works fine when Fast Note Sync is absent or disabled. Every assumption about the other plugin is re-validated at runtime; any mismatch is reported as "unavailable" rather than thrown. Saving plainly is enough because the flag is read live at every upload site, so the default path avoids reconnecting Fast Note Sync's websocket; the heavier save it uses in its own settings pane is available as an option. The flag can also be changed from Fast Note Sync's own settings pane, where nothing announces it, so the state is re-read once a second rather than hooked — that costs one property read, and the DOM is only touched when the value actually changed.
 
 Requires Obsidian ≥ 1.8.7 and **Fast Note Sync** installed and enabled (its id must be `fast-note-sync`).
+
+### iPad and phones
+
+It works there. The plugin uses only Obsidian's cross-platform API — no `electron`, no `node:fs`, no `process`, and the only `require` in the build is `obsidian` itself. The commands and the header switch both work; the **status bar option does not**, because Obsidian hides the entire status bar on mobile (`.is-mobile .status-bar { display: none }` in its own stylesheet), so the plugin does not even create the element there and the setting is shown disabled with an explanation rather than silently doing nothing. The value you set on desktop is preserved. Fast Note Sync itself supports mobile, so the whole chain works.
 
 ## 许可 / License
 
