@@ -1,29 +1,31 @@
 /*
  * Fast Note Sync Toggle
  *
- * The plugin brings its own class for the header action rather than relying on
+ * The plugin brings its own class for the header actions rather than relying on
  * Obsidian's `view-action`, so the state styling works on any view type --
- * Markdown, Canvas and Excalidraw all get the same button from `addAction`, but
+ * Markdown, Canvas and Excalidraw all get the same buttons from `addAction`, but
  * only Markdown's container is guaranteed to be styled the same way.
+ *
+ * One class covers every mode, so adding a mode needs no change here.
  */
 
-.fns-readonly-toggle.is-active {
+.fns-mode-toggle.is-active {
 	color: var(--text-accent);
 }
 
-.fns-readonly-toggle.is-missing {
+.fns-mode-toggle.is-missing {
 	color: var(--text-faint);
 }
 
-.fns-readonly-status {
+.fns-mode-status {
 	cursor: pointer;
 }
 
-.fns-readonly-status.is-active {
+.fns-mode-status.is-active {
 	color: var(--text-accent);
 }
 
-.fns-readonly-status.is-missing {
+.fns-mode-status.is-missing {
 	color: var(--text-faint);
 }
 

@@ -34,26 +34,63 @@ function getFastNoteSync(app) {
   if (!candidate || typeof candidate !== "object") return null;
   const plugin = candidate;
   if (!plugin.settings || typeof plugin.settings !== "object") return null;
-  if (typeof plugin.settings.readonlySyncEnabled !== "boolean") return null;
   if (typeof plugin.saveSettings !== "function") return null;
   return plugin;
 }
-function readMode(app) {
+function readFlag(app, key) {
   const plugin = getFastNoteSync(app);
-  if (!plugin) return "missing";
-  return plugin.settings.readonlySyncEnabled ? "on" : "off";
+  if (!plugin) return null;
+  const value = plugin.settings[key];
+  return typeof value === "boolean" ? value : null;
 }
-async function writeMode(app, on, reloadServices) {
+async function writeFlag(app, key, on, reloadServices) {
   const plugin = getFastNoteSync(app);
-  if (!plugin) return "missing";
-  plugin.settings.readonlySyncEnabled = on;
+  if (!plugin) return null;
+  if (typeof plugin.settings[key] !== "boolean") return null;
+  plugin.settings[key] = on;
   if (reloadServices && typeof plugin.saveAndReloadServices === "function") {
     await plugin.saveAndReloadServices();
   } else {
     await plugin.saveSettings();
   }
-  return on ? "on" : "off";
+  return on;
 }
+
+// src/flags.ts
+var FLAGS = [
+  {
+    id: "readonly",
+    key: "readonlySyncEnabled",
+    settingsKey: "enableReadonly",
+    label: "只读同步",
+    description: "开启后本设备只接收服务端更新，不上传任何本地修改。",
+    onIcon: "lock",
+    offIcon: "unlock",
+    onTip: "只读同步模式已开启（只收不发）—— 点击关闭",
+    offTip: "只读同步模式已关闭（会正常上传）—— 点击开启",
+    onNotice: "已开启只读同步模式：本设备只接收服务端更新，不再上传本地修改。",
+    offNotice: "已关闭只读同步模式：本地修改会重新上传。",
+    toggleCommand: "切换只读同步模式（开 / 关）",
+    onCommand: "开启只读同步模式",
+    offCommand: "关闭只读同步模式"
+  },
+  {
+    id: "manual",
+    key: "manualSyncEnabled",
+    settingsKey: "enableManual",
+    label: "手动同步",
+    description: "开启后不再在启动或文件修改时自动触发同步，只能手动触发。Fast Note Sync 自己对这个选项的提示是「请谨慎开启，会严重影响使用体验」。",
+    onIcon: "pause",
+    offIcon: "zap",
+    onTip: "手动同步模式已开启（自动同步已暂停）—— 点击关闭",
+    offTip: "手动同步模式已关闭（会自动触发同步）—— 点击开启",
+    onNotice: "已开启手动同步模式：启动与文件修改都不再自动触发同步，只能手动触发。",
+    offNotice: "已关闭手动同步模式：恢复自动触发同步。",
+    toggleCommand: "切换手动同步模式（开 / 关）",
+    onCommand: "开启手动同步模式",
+    offCommand: "关闭手动同步模式"
+  }
+];
 
 // src/settings.ts
 var import_obsidian = require("obsidian");
@@ -62,6 +99,17 @@ var HEADER_VIEW_TYPES = [
   { key: "headerInCanvas", type: "canvas", label: "Canvas 画布" },
   { key: "headerInExcalidraw", type: "excalidraw", label: "Excalidraw 图纸" }
 ];
+var DEFAULT_SETTINGS = {
+  showHeaderButton: true,
+  headerInMarkdown: true,
+  headerInCanvas: true,
+  headerInExcalidraw: true,
+  enableReadonly: true,
+  enableManual: true,
+  showStatusBar: false,
+  showNotice: true,
+  reloadServices: false
+};
 function enabledHeaderViews(settings) {
   const out = /* @__PURE__ */ new Set();
   for (const row of HEADER_VIEW_TYPES) {
@@ -69,15 +117,9 @@ function enabledHeaderViews(settings) {
   }
   return out;
 }
-var DEFAULT_SETTINGS = {
-  showHeaderButton: true,
-  headerInMarkdown: true,
-  headerInCanvas: true,
-  headerInExcalidraw: true,
-  showStatusBar: false,
-  showNotice: true,
-  reloadServices: false
-};
+function isFlagEnabled(settings, flag) {
+  return settings[flag.settingsKey] === true;
+}
 function normalizeSettings(stored) {
   const raw = stored != null ? stored : {};
   const fallback = DEFAULT_SETTINGS;
@@ -100,16 +142,56 @@ var ToggleSettingTab = class extends import_obsidian.PluginSettingTab {
     const found = getFastNoteSync(this.app) !== null;
     containerEl.createDiv({
       cls: "fns-toggle-note",
-      text: found ? "已找到 Fast Note Sync。下面的开关只改它的「只读同步模式」，不会改动它的其它设置。" : `没有找到 Fast Note Sync（${FNS_PLUGIN_ID}）。请先安装并启用它，本插件才能起作用。`
+      text: found ? "已找到 Fast Note Sync。下面的开关只改它的同步模式，不会改动它的其它设置。" : `没有找到 Fast Note Sync（${FNS_PLUGIN_ID}）。请先安装并启用它，本插件才能起作用。`
     });
-    new import_obsidian.Setting(containerEl).setName("立即切换一次").setDesc("等同于命令面板里的「切换只读同步模式」。").addButton(
-      (button) => button.setButtonText("切换").setDisabled(!found).onClick(async () => {
-        await this.plugin.toggle();
-        this.display();
-      })
-    );
+    this.renderSwitches(containerEl);
+    this.renderVisibility(containerEl, found);
+    this.renderBehaviour(containerEl);
+  }
+  /**
+   * The "switch it now" buttons, one per mode.
+   *
+   * @param containerEl - The settings container.
+   */
+  renderSwitches(containerEl) {
+    new import_obsidian.Setting(containerEl).setName("立即切换一次").setHeading();
+    for (const flag of FLAGS) {
+      const state = readFlag(this.app, flag.key);
+      const setting = new import_obsidian.Setting(containerEl).setName(flag.label).setDesc(flag.description);
+      if (state === null) {
+        setting.setDesc(`${flag.description}（当前不可用）`);
+        continue;
+      }
+      setting.setDesc(`${flag.description}　当前：${state ? "开" : "关"}`);
+      setting.addButton(
+        (button) => button.setButtonText("切换").onClick(async () => {
+          await this.plugin.toggleFlag(flag);
+          this.display();
+        })
+      );
+    }
+  }
+  /**
+   * Which modes and which pages get a switch.
+   *
+   * @param containerEl - The settings container.
+   * @param found - Whether Fast Note Sync was found.
+   */
+  renderVisibility(containerEl, found) {
+    new import_obsidian.Setting(containerEl).setName("显示哪些开关").setHeading();
+    for (const flag of FLAGS) {
+      new import_obsidian.Setting(containerEl).setName(`显示「${flag.label}」开关`).setDesc(
+        `关闭后这个模式既没有页面按钮、也没有状态栏项，它的命令也会从命令面板里消失。（不会改动 Fast Note Sync 里的实际状态。）`
+      ).addToggle(
+        (toggle) => toggle.setValue(this.plugin.settings[flag.settingsKey]).onChange(async (value) => {
+          this.plugin.settings[flag.settingsKey] = value;
+          await this.plugin.saveSettings();
+          this.plugin.refresh();
+        })
+      );
+    }
     new import_obsidian.Setting(containerEl).setName("在页面顶部显示开关").setDesc(
-      "在页面右上角的按钮栏里放一个开关：锁 = 只读同步已开启，开锁 = 已关闭。点击即可切换，鼠标悬停会显示当前状态。"
+      "在页面右上角的按钮栏里放开关。图标含义：" + FLAGS.map((flag) => `「${flag.label}」${flag.offIcon} 关 / ${flag.onIcon} 开`).join("；") + "。点击即可切换，鼠标悬停会显示当前状态。"
     ).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showHeaderButton).onChange(async (value) => {
         this.plugin.settings.showHeaderButton = value;
@@ -130,7 +212,7 @@ var ToggleSettingTab = class extends import_obsidian.PluginSettingTab {
       }
     }
     new import_obsidian.Setting(containerEl).setName("在状态栏也显示").setDesc(
-      import_obsidian.Platform.isMobile ? "移动端（iPad / 手机）的 Obsidian 没有状态栏（它自己的样式里就把状态栏隐藏了），所以这一项在移动端不会生效。这里显示的是桌面端的设置值，会原样保留。" : "状态栏在窗口底部，会显示成「只读同步：开 / 关」，点击同样可以切换。"
+      import_obsidian.Platform.isMobile ? "移动端（iPad / 手机）的 Obsidian 没有状态栏（它自己的样式里就把状态栏隐藏了），所以这一项在移动端不会生效。这里显示的是桌面端的设置值，会原样保留。" : "状态栏在窗口底部，每个模式显示成一项，点击同样可以切换。"
     ).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showStatusBar).setDisabled(import_obsidian.Platform.isMobile).onChange(async (value) => {
         this.plugin.settings.showStatusBar = value;
@@ -138,6 +220,20 @@ var ToggleSettingTab = class extends import_obsidian.PluginSettingTab {
         this.plugin.refresh();
       })
     );
+    if (!found) {
+      containerEl.createDiv({
+        cls: "fns-toggle-note",
+        text: `提示：没有找到 Fast Note Sync（${FNS_PLUGIN_ID}），所以开关会显示成不可用状态，点击会给出说明。`
+      });
+    }
+  }
+  /**
+   * How a switch behaves once used.
+   *
+   * @param containerEl - The settings container.
+   */
+  renderBehaviour(containerEl) {
+    new import_obsidian.Setting(containerEl).setName("切换时的行为").setHeading();
     new import_obsidian.Setting(containerEl).setName("切换时弹出提示").setDesc("每次切换后用通知说明新的状态。关掉后切换是静默的。").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showNotice).onChange(async (value) => {
         this.plugin.settings.showNotice = value;
@@ -145,7 +241,7 @@ var ToggleSettingTab = class extends import_obsidian.PluginSettingTab {
       })
     );
     new import_obsidian.Setting(containerEl).setName("切换后重载同步服务").setDesc(
-      "默认关闭。只读同步的开关在 Fast Note Sync 里是「每次上传前现读」的，所以只保存设置就已经生效；打开这一项会调用它自己的重载流程，代价是每次切换都会断开并重连 websocket。"
+      "默认关闭。这两个标志在 Fast Note Sync 里都是「用到时现读」的，所以只保存设置就已经生效；打开这一项会调用它自己的重载流程，代价是每次切换都会断开并重连 websocket。"
     ).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.reloadServices).onChange(async (value) => {
         this.plugin.settings.reloadServices = value;
@@ -159,21 +255,9 @@ var ToggleSettingTab = class extends import_obsidian.PluginSettingTab {
 };
 
 // src/main.ts
-var ICON_ON = "lock";
-var ICON_OFF = "unlock";
 var ICON_MISSING = "help-circle";
-var HEADER_CLASS = "fns-readonly-toggle";
-var STATUS_CLASS = "fns-readonly-status";
-function stateText(mode) {
-  if (mode === "on") return "只读同步：开";
-  if (mode === "off") return "只读同步：关";
-  return "只读同步：不可用";
-}
-function tooltip(mode) {
-  if (mode === "on") return "只读同步模式已开启（只收不发）—— 点击关闭";
-  if (mode === "off") return "只读同步模式已关闭（会正常上传）—— 点击开启";
-  return `没有找到 ${FNS_PLUGIN_ID} 插件，点击查看说明`;
-}
+var HEADER_CLASS = "fns-mode-toggle";
+var STATUS_CLASS = "fns-mode-status";
 function asActionableView(view) {
   const candidate = view;
   if (typeof candidate.getViewType !== "function") return null;
@@ -184,31 +268,33 @@ var FastNoteSyncTogglePlugin = class extends import_obsidian2.Plugin {
   constructor() {
     super(...arguments);
     this.settings = DEFAULT_SETTINGS;
-    /** Header actions this plugin added, keyed by the view that owns them. */
+    /** Header actions, one map of mode id to element per view. */
     this.headerButtons = /* @__PURE__ */ new Map();
-    /** The status bar item, when that option is on. */
-    this.statusBarEl = null;
-    /** The last mode painted, so an unchanged poll does not touch the DOM. */
+    /** Status bar items, one per mode. */
+    this.statusItems = /* @__PURE__ */ new Map();
+    /** Signature of the last painted state, so an unchanged poll is free. */
     this.painted = null;
   }
   async onload() {
     await this.loadSettings();
     this.addSettingTab(new ToggleSettingTab(this.app, this));
-    this.addCommand({
-      id: "toggle-readonly-sync",
-      name: "切换只读同步模式（开 / 关）",
-      callback: () => void this.toggle()
-    });
-    this.addCommand({
-      id: "enable-readonly-sync",
-      name: "开启只读同步模式",
-      checkCallback: (checking) => this.runExplicit(checking, true)
-    });
-    this.addCommand({
-      id: "disable-readonly-sync",
-      name: "关闭只读同步模式",
-      checkCallback: (checking) => this.runExplicit(checking, false)
-    });
+    for (const flag of FLAGS) {
+      this.addCommand({
+        id: `toggle-${flag.id}-sync`,
+        name: flag.toggleCommand,
+        checkCallback: (checking) => this.runCommand(checking, flag, null)
+      });
+      this.addCommand({
+        id: `enable-${flag.id}-sync`,
+        name: flag.onCommand,
+        checkCallback: (checking) => this.runCommand(checking, flag, true)
+      });
+      this.addCommand({
+        id: `disable-${flag.id}-sync`,
+        name: flag.offCommand,
+        checkCallback: (checking) => this.runCommand(checking, flag, false)
+      });
+    }
     this.app.workspace.onLayoutReady(() => this.refresh());
     this.registerEvent(this.app.workspace.on("layout-change", () => this.refresh()));
     this.registerEvent(
@@ -218,12 +304,15 @@ var FastNoteSyncTogglePlugin = class extends import_obsidian2.Plugin {
     console.log("[fast-note-sync-toggle] 已加载");
   }
   onunload() {
-    var _a;
     this.removeHeaderButtons();
-    (_a = this.statusBarEl) == null ? void 0 : _a.remove();
-    this.statusBarEl = null;
+    for (const el of this.statusItems.values()) el.remove();
+    this.statusItems.clear();
   }
   // -- state -------------------------------------------------------------
+  /** The modes the settings currently expose. */
+  enabledFlags() {
+    return FLAGS.filter((flag) => isFlagEnabled(this.settings, flag));
+  }
   /**
    * Adds, removes or repaints the switches.
    *
@@ -231,123 +320,174 @@ var FastNoteSyncTogglePlugin = class extends import_obsidian2.Plugin {
    * changed option takes effect immediately.
    */
   refresh() {
-    const enabled = enabledHeaderViews(this.settings);
     const wanted = this.settings.showHeaderButton;
-    for (const [view, el] of this.headerButtons) {
-      if (el.isConnected && wanted && enabled.has(view.getViewType())) continue;
-      el.remove();
-      this.headerButtons.delete(view);
+    const viewTypes = enabledHeaderViews(this.settings);
+    const flags = this.enabledFlags();
+    const ids = new Set(flags.map((flag) => flag.id));
+    for (const [view, buttons] of this.headerButtons) {
+      for (const [id, el] of buttons) {
+        const keep = el.isConnected && wanted && viewTypes.has(view.getViewType()) && ids.has(id);
+        if (keep) continue;
+        el.remove();
+        buttons.delete(id);
+      }
+      if (buttons.size === 0) this.headerButtons.delete(view);
     }
     if (wanted) {
       this.app.workspace.iterateAllLeaves((leaf) => {
         const view = leaf.view;
-        if (this.headerButtons.has(view)) return;
-        if (!enabled.has(view.getViewType())) return;
+        if (!viewTypes.has(view.getViewType())) return;
         const actionable = asActionableView(view);
         if (!actionable) return;
-        let el;
-        try {
-          el = actionable.addAction(ICON_OFF, "", () => void this.toggle());
-        } catch (error) {
-          console.error(
-            `[fast-note-sync-toggle] 无法在 ${view.getViewType()} 视图上加按钮`,
-            error
-          );
-          return;
+        let buttons = this.headerButtons.get(view);
+        if (!buttons) {
+          buttons = /* @__PURE__ */ new Map();
+          this.headerButtons.set(view, buttons);
         }
-        el.addClass(HEADER_CLASS);
-        this.headerButtons.set(view, el);
+        for (let i = flags.length - 1; i >= 0; i--) {
+          const flag = flags[i];
+          if (buttons.has(flag.id)) continue;
+          try {
+            const el = actionable.addAction(
+              flag.offIcon,
+              "",
+              () => void this.toggleFlag(flag)
+            );
+            el.addClass(HEADER_CLASS);
+            buttons.set(flag.id, el);
+          } catch (error) {
+            console.error(
+              `[fast-note-sync-toggle] 无法在 ${view.getViewType()} 视图上加按钮`,
+              error
+            );
+            return;
+          }
+        }
       });
     }
     this.painted = null;
     this.sync();
   }
-  /** Repaints only when the mode actually changed. */
+  /** Repaints only when something actually changed. */
   sync() {
-    const mode = readMode(this.app);
-    this.ensureStatusBar();
-    if (mode === this.painted) return;
-    this.painted = mode;
-    const icon = mode === "on" ? ICON_ON : mode === "off" ? ICON_OFF : ICON_MISSING;
-    const tip = tooltip(mode);
-    for (const el of this.headerButtons.values()) {
-      (0, import_obsidian2.setIcon)(el, icon);
-      el.setAttribute("aria-label", tip);
-      el.toggleClass("is-active", mode === "on");
-      el.toggleClass("is-missing", mode === "missing");
-    }
-    if (this.statusBarEl) {
-      this.statusBarEl.setText(stateText(mode));
-      this.statusBarEl.setAttribute("aria-label", tip);
-      this.statusBarEl.toggleClass("is-active", mode === "on");
-      this.statusBarEl.toggleClass("is-missing", mode === "missing");
+    this.ensureStatusItems();
+    const flags = this.enabledFlags();
+    const signature = flags.map((flag) => {
+      var _a;
+      return `${flag.id}:${(_a = readFlag(this.app, flag.key)) != null ? _a : "na"}`;
+    }).join("|") + `#${import_obsidian2.Platform.isMobile ? "m" : "d"}`;
+    if (signature === this.painted) return;
+    this.painted = signature;
+    for (const flag of flags) {
+      const state = readFlag(this.app, flag.key);
+      const on = state === true;
+      const missing = state === null;
+      const icon = missing ? ICON_MISSING : on ? flag.onIcon : flag.offIcon;
+      const tip = missing ? `没有找到 ${FNS_PLUGIN_ID} 插件，或它的设置里没有这一项 —— 点击查看说明` : on ? flag.onTip : flag.offTip;
+      for (const buttons of this.headerButtons.values()) {
+        const el = buttons.get(flag.id);
+        if (!el) continue;
+        (0, import_obsidian2.setIcon)(el, icon);
+        el.setAttribute("aria-label", tip);
+        el.toggleClass("is-active", on);
+        el.toggleClass("is-missing", missing);
+      }
+      const status = this.statusItems.get(flag.id);
+      if (!status) continue;
+      status.setText(`${flag.label}：${missing ? "不可用" : on ? "开" : "关"}`);
+      status.setAttribute("aria-label", tip);
+      status.toggleClass("is-active", on);
+      status.toggleClass("is-missing", missing);
     }
   }
   // -- switching ---------------------------------------------------------
-  /** Flips the mode and reports the result. */
-  async toggle() {
-    const mode = readMode(this.app);
-    if (mode === "missing") {
-      new import_obsidian2.Notice(
-        `没有找到 Fast Note Sync（${FNS_PLUGIN_ID}）。请先安装并启用它。`
-      );
+  /**
+   * Flips one mode and reports the result.
+   *
+   * @param flag - The mode to flip.
+   */
+  async toggleFlag(flag) {
+    const current = readFlag(this.app, flag.key);
+    if (current === null) {
+      new import_obsidian2.Notice(this.unavailableText(flag));
       return;
     }
-    await this.apply(mode !== "on");
+    await this.apply(flag, !current);
+  }
+  /**
+   * What to say when a mode cannot be driven.
+   *
+   * @param flag - The mode.
+   * @returns A sentence naming the missing piece.
+   */
+  unavailableText(flag) {
+    return getFastNoteSync(this.app) ? `Fast Note Sync 的设置里没有找到「${flag.label}」这一项，可能是它改了设置结构。` : `没有找到 Fast Note Sync（${FNS_PLUGIN_ID}）。请先安装并启用它。`;
   }
   /**
    * Sets an explicit mode, or reports whether the command applies.
    *
    * @param checking - True while Obsidian is only deciding whether to list it.
-   * @param on - The mode to set.
+   * @param flag - The mode.
+   * @param target - The value to force, or null to flip.
    * @returns Whether the command is available right now.
    */
-  runExplicit(checking, on) {
-    const mode = readMode(this.app);
-    if (mode === "missing") return false;
-    if (mode === (on ? "on" : "off")) return false;
-    if (!checking) void this.apply(on);
+  runCommand(checking, flag, target) {
+    if (!isFlagEnabled(this.settings, flag)) return false;
+    const current = readFlag(this.app, flag.key);
+    if (current === null) return false;
+    if (target !== null && current === target) return false;
+    if (!checking) void this.apply(flag, target != null ? target : !current);
     return true;
   }
   /**
-   * Writes the mode, repaints and optionally announces it.
+   * Writes a mode, repaints and optionally announces it.
    *
-   * @param on - The mode to set.
+   * @param flag - The mode.
+   * @param on - The value to set.
    */
-  async apply(on) {
-    const result = await writeMode(this.app, on, this.settings.reloadServices);
-    if (result === "missing") {
-      new import_obsidian2.Notice(
-        `没有找到 Fast Note Sync（${FNS_PLUGIN_ID}）。请先安装并启用它。`
-      );
+  async apply(flag, on) {
+    const written = await writeFlag(
+      this.app,
+      flag.key,
+      on,
+      this.settings.reloadServices
+    );
+    if (written === null) {
+      new import_obsidian2.Notice(this.unavailableText(flag));
       return;
     }
     this.painted = null;
     this.sync();
     if (this.settings.showNotice) {
-      new import_obsidian2.Notice(
-        on ? "已开启只读同步模式：本设备只接收服务端更新，不再上传本地修改。" : "已关闭只读同步模式：本地修改会重新上传。"
-      );
+      new import_obsidian2.Notice(on ? flag.onNotice : flag.offNotice);
     }
   }
   // -- chrome ------------------------------------------------------------
   /** Removes every header action this plugin added. */
   removeHeaderButtons() {
-    for (const el of this.headerButtons.values()) el.remove();
+    for (const buttons of this.headerButtons.values()) {
+      for (const el of buttons.values()) el.remove();
+    }
     this.headerButtons.clear();
   }
-  /** Creates or removes the status bar item to match the setting. */
-  ensureStatusBar() {
+  /** Creates or removes the status bar items to match the settings. */
+  ensureStatusItems() {
     const wanted = this.settings.showStatusBar && !import_obsidian2.Platform.isMobile;
-    if (wanted && !this.statusBarEl) {
+    const flags = this.enabledFlags();
+    const ids = new Set(flags.map((flag) => flag.id));
+    for (const [id, el] of this.statusItems) {
+      if (wanted && ids.has(id)) continue;
+      el.remove();
+      this.statusItems.delete(id);
+    }
+    if (!wanted) return;
+    for (const flag of flags) {
+      if (this.statusItems.has(flag.id)) continue;
       const el = this.addStatusBarItem();
       el.addClass(STATUS_CLASS);
-      el.onClickEvent(() => void this.toggle());
+      el.onClickEvent(() => void this.toggleFlag(flag));
+      this.statusItems.set(flag.id, el);
       this.painted = null;
-      this.statusBarEl = el;
-    } else if (!wanted && this.statusBarEl) {
-      this.statusBarEl.remove();
-      this.statusBarEl = null;
     }
   }
   // -- persistence -------------------------------------------------------
