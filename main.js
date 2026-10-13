@@ -57,8 +57,23 @@ async function writeMode(app, on, reloadServices) {
 
 // src/settings.ts
 var import_obsidian = require("obsidian");
+var HEADER_VIEW_TYPES = [
+  { key: "headerInMarkdown", type: "markdown", label: "Markdown 笔记" },
+  { key: "headerInCanvas", type: "canvas", label: "Canvas 画布" },
+  { key: "headerInExcalidraw", type: "excalidraw", label: "Excalidraw 图纸" }
+];
+function enabledHeaderViews(settings) {
+  const out = /* @__PURE__ */ new Set();
+  for (const row of HEADER_VIEW_TYPES) {
+    if (settings[row.key]) out.add(row.type);
+  }
+  return out;
+}
 var DEFAULT_SETTINGS = {
   showHeaderButton: true,
+  headerInMarkdown: true,
+  headerInCanvas: true,
+  headerInExcalidraw: true,
   showStatusBar: false,
   showNotice: true,
   reloadServices: false
@@ -94,14 +109,26 @@ var ToggleSettingTab = class extends import_obsidian.PluginSettingTab {
       })
     );
     new import_obsidian.Setting(containerEl).setName("在页面顶部显示开关").setDesc(
-      "在笔记右上角的按钮栏里放一个开关：锁 = 只读同步已开启，开锁 = 已关闭。点击即可切换，鼠标悬停会显示当前状态。"
+      "在页面右上角的按钮栏里放一个开关：锁 = 只读同步已开启，开锁 = 已关闭。点击即可切换，鼠标悬停会显示当前状态。"
     ).addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showHeaderButton).onChange(async (value) => {
         this.plugin.settings.showHeaderButton = value;
         await this.plugin.saveSettings();
         this.plugin.refresh();
+        this.display();
       })
     );
+    if (this.plugin.settings.showHeaderButton) {
+      for (const row of HEADER_VIEW_TYPES) {
+        new import_obsidian.Setting(containerEl).setName(`↳ 在${row.label}里显示`).setClass("fns-toggle-sub").addToggle(
+          (toggle) => toggle.setValue(this.plugin.settings[row.key]).onChange(async (value) => {
+            this.plugin.settings[row.key] = value;
+            await this.plugin.saveSettings();
+            this.plugin.refresh();
+          })
+        );
+      }
+    }
     new import_obsidian.Setting(containerEl).setName("在状态栏也显示").setDesc("状态栏在窗口底部，会显示成「只读同步：开 / 关」，点击同样可以切换。").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showStatusBar).onChange(async (value) => {
         this.plugin.settings.showStatusBar = value;
@@ -144,6 +171,12 @@ function tooltip(mode) {
   if (mode === "on") return "只读同步模式已开启（只收不发）—— 点击关闭";
   if (mode === "off") return "只读同步模式已关闭（会正常上传）—— 点击开启";
   return `没有找到 ${FNS_PLUGIN_ID} 插件，点击查看说明`;
+}
+function asActionableView(view) {
+  const candidate = view;
+  if (typeof candidate.getViewType !== "function") return null;
+  if (typeof candidate.addAction !== "function") return null;
+  return candidate;
 }
 var FastNoteSyncTogglePlugin = class extends import_obsidian2.Plugin {
   constructor() {
@@ -196,20 +229,33 @@ var FastNoteSyncTogglePlugin = class extends import_obsidian2.Plugin {
    * changed option takes effect immediately.
    */
   refresh() {
+    const enabled = enabledHeaderViews(this.settings);
+    const wanted = this.settings.showHeaderButton;
     for (const [view, el] of this.headerButtons) {
-      if (!el.isConnected) this.headerButtons.delete(view);
+      if (el.isConnected && wanted && enabled.has(view.getViewType())) continue;
+      el.remove();
+      this.headerButtons.delete(view);
     }
-    if (this.settings.showHeaderButton) {
+    if (wanted) {
       this.app.workspace.iterateAllLeaves((leaf) => {
         const view = leaf.view;
-        if (!(view instanceof import_obsidian2.MarkdownView)) return;
         if (this.headerButtons.has(view)) return;
-        const el = view.addAction(ICON_OFF, "", () => void this.toggle());
+        if (!enabled.has(view.getViewType())) return;
+        const actionable = asActionableView(view);
+        if (!actionable) return;
+        let el;
+        try {
+          el = actionable.addAction(ICON_OFF, "", () => void this.toggle());
+        } catch (error) {
+          console.error(
+            `[fast-note-sync-toggle] 无法在 ${view.getViewType()} 视图上加按钮`,
+            error
+          );
+          return;
+        }
         el.addClass(HEADER_CLASS);
         this.headerButtons.set(view, el);
       });
-    } else {
-      this.removeHeaderButtons();
     }
     this.painted = null;
     this.sync();

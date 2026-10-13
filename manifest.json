@@ -1,7 +1,7 @@
 {
   "id": "fast-note-sync-toggle",
   "name": "Fast Note Sync Toggle",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "minAppVersion": "1.8.7",
   "description": "用一个命令或页面顶部的一个开关，快速开启/关闭 Fast Note Sync 的只读同步模式。",
   "author": "Junlet",

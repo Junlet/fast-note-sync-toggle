@@ -32,7 +32,7 @@ Fast Note Sync 的**只读同步模式**决定这台设备**能不能上传**本
 
 **2. 页面顶部的开关**
 
-在笔记右上角的按钮栏里放一个图标：
+在页面右上角的按钮栏里放一个图标 —— **Markdown 笔记、Canvas 画布、Excalidraw 图纸都有**（这三类可以分别关掉）：
 
 | 图标 | 含义 |
 |---|---|
@@ -51,10 +51,15 @@ Fast Note Sync 的**只读同步模式**决定这台设备**能不能上传**本
 | 设置 | 默认 | 说明 |
 |---|---|---|
 | 立即切换一次 | — | 等同于命令面板里的切换命令 |
-| 在页面顶部显示开关 | 开 | 上面那个锁图标 |
+| 在页面顶部显示开关 | 开 | 上面那个锁图标的总开关 |
+| ↳ 在 Markdown 笔记里显示 | 开 | |
+| ↳ 在 Canvas 画布里显示 | 开 | |
+| ↳ 在 Excalidraw 图纸里显示 | 开 | |
 | 在状态栏也显示 | 关 | 底部的文字开关 |
 | 切换时弹出提示 | 开 | 关掉后切换是静默的 |
 | 切换后重载同步服务 | **关** | 见下 |
+
+三类页面用的是 Obsidian 自己的视图类型字符串（`markdown` / `canvas` / `excalidraw`）。不在这个清单里的视图不会被加按钮 —— 那些页面本来也没有可放按钮的标题栏。
 
 ### 为什么「重载同步服务」默认关闭
 
@@ -101,7 +106,7 @@ npm run ship      # build + deploy
 
 ## English
 
-Fast Note Sync's **read-only sync mode** decides whether this device may upload local changes. It is worth flicking often — turn it on before editing on a machine you do not trust to be authoritative, turn it off when you are done — but it sits three levels deep in that plugin's settings pane. This plugin puts it on a command, on a switch in the note header (a lock icon when read-only is on, an open padlock when it is off), and optionally in the status bar. Two extra commands set the mode explicitly, because a hotkey that always turns it *on* is more reliable than one that flips whatever the current state happens to be.
+Fast Note Sync's **read-only sync mode** decides whether this device may upload local changes. It is worth flicking often — turn it on before editing on a machine you do not trust to be authoritative, turn it off when you are done — but it sits three levels deep in that plugin's settings pane. This plugin puts it on a command, on a switch in the page header (**Markdown notes, Canvas boards and Excalidraw drawings**; each can be switched off separately), and optionally in the status bar. Two extra commands set the mode explicitly, because a hotkey that always turns it *on* is more reliable than one that flips whatever the current state happens to be.
 
 It reaches Fast Note Sync through `app.plugins.plugins["fast-note-sync"]` — the same route that plugin itself uses to reach others — and imports nothing from it, so this plugin loads and works fine when Fast Note Sync is absent or disabled. Every assumption about the other plugin is re-validated at runtime; any mismatch is reported as "unavailable" rather than thrown. Saving plainly is enough because the flag is read live at every upload site, so the default path avoids reconnecting Fast Note Sync's websocket; the heavier save it uses in its own settings pane is available as an option. The flag can also be changed from Fast Note Sync's own settings pane, where nothing announces it, so the state is re-read once a second rather than hooked — that costs one property read, and the DOM is only touched when the value actually changed.
 

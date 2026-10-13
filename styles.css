@@ -1,16 +1,17 @@
 /*
  * Fast Note Sync Toggle
  *
- * The plugin has no styling of its own beyond marking which state the switch is
- * in; everything else is Obsidian's. The `is-active` class is applied by the
- * plugin, and `is-missing` when Fast Note Sync cannot be found.
+ * The plugin brings its own class for the header action rather than relying on
+ * Obsidian's `view-action`, so the state styling works on any view type --
+ * Markdown, Canvas and Excalidraw all get the same button from `addAction`, but
+ * only Markdown's container is guaranteed to be styled the same way.
  */
 
-.view-action.fns-readonly-toggle.is-active {
+.fns-readonly-toggle.is-active {
 	color: var(--text-accent);
 }
 
-.view-action.fns-readonly-toggle.is-missing {
+.fns-readonly-toggle.is-missing {
 	color: var(--text-faint);
 }
 
@@ -35,4 +36,11 @@
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
 	line-height: 1.5;
+}
+
+/* The per-page toggles, tucked under the switch they belong to. */
+.fns-toggle-sub .setting-item-name {
+	padding-inline-start: 1.5em;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
 }

@@ -20,17 +20,12 @@
  * changed -- so the button cannot go stale.
  */
 
-import {
-	MarkdownView,
-	Notice,
-	Plugin,
-	setIcon,
-	type WorkspaceLeaf,
-} from "obsidian";
+import { Notice, Plugin, setIcon, type View, type WorkspaceLeaf } from "obsidian";
 import { FNS_PLUGIN_ID, readMode, writeMode, type SyncMode } from "./fns";
 import {
 	DEFAULT_SETTINGS,
 	ToggleSettingTab,
+	enabledHeaderViews,
 	normalizeSettings,
 	type ToggleSettings,
 } from "./settings";
@@ -71,11 +66,40 @@ function tooltip(mode: SyncMode): string {
 	return `没有找到 ${FNS_PLUGIN_ID} 插件，点击查看说明`;
 }
 
+/**
+ * A view that can carry a header action.
+ *
+ * Duck-typed rather than checked with `instanceof ItemView`: the typings put
+ * `addAction` on `ItemView`, but Canvas and Excalidraw views are Obsidian's own
+ * (and another plugin's) classes, and the only thing that actually matters is
+ * that the two methods exist.
+ */
+interface ActionableView extends View {
+	addAction(
+		icon: string,
+		title: string,
+		callback: (evt: MouseEvent) => unknown
+	): HTMLElement;
+}
+
+/**
+ * Narrows a view to one this plugin can decorate.
+ *
+ * @param view - Any workspace view.
+ * @returns The view, or null when it cannot take a header action.
+ */
+function asActionableView(view: View): ActionableView | null {
+	const candidate = view as Partial<ActionableView>;
+	if (typeof candidate.getViewType !== "function") return null;
+	if (typeof candidate.addAction !== "function") return null;
+	return candidate as ActionableView;
+}
+
 export default class FastNoteSyncTogglePlugin extends Plugin {
 	settings: ToggleSettings = DEFAULT_SETTINGS;
 
 	/** Header actions this plugin added, keyed by the view that owns them. */
-	private readonly headerButtons = new Map<MarkdownView, HTMLElement>();
+	private readonly headerButtons = new Map<View, HTMLElement>();
 
 	/** The status bar item, when that option is on. */
 	private statusBarEl: HTMLElement | null = null;
@@ -130,22 +154,42 @@ export default class FastNoteSyncTogglePlugin extends Plugin {
 	 * changed option takes effect immediately.
 	 */
 	refresh(): void {
-		// Views that have been closed leave their action element detached.
+		const enabled = enabledHeaderViews(this.settings);
+		const wanted = this.settings.showHeaderButton;
+
+		// Drop buttons that have been detached, switched off, or whose page type
+		// is no longer allowed.
 		for (const [view, el] of this.headerButtons) {
-			if (!el.isConnected) this.headerButtons.delete(view);
+			if (el.isConnected && wanted && enabled.has(view.getViewType())) continue;
+			el.remove();
+			this.headerButtons.delete(view);
 		}
 
-		if (this.settings.showHeaderButton) {
+		if (wanted) {
 			this.app.workspace.iterateAllLeaves((leaf: WorkspaceLeaf) => {
 				const view = leaf.view;
-				if (!(view instanceof MarkdownView)) return;
 				if (this.headerButtons.has(view)) return;
-				const el = view.addAction(ICON_OFF, "", () => void this.toggle());
+				if (!enabled.has(view.getViewType())) return;
+
+				const actionable = asActionableView(view);
+				if (!actionable) return;
+
+				let el: HTMLElement;
+				try {
+					el = actionable.addAction(ICON_OFF, "", () => void this.toggle());
+				} catch (error) {
+					// Obsidian's addAction prepends into `view.actionsEl`, which
+					// only exists on views that have a header. A view without one
+					// throws here rather than returning nothing.
+					console.error(
+						`[fast-note-sync-toggle] 无法在 ${view.getViewType()} 视图上加按钮`,
+						error
+					);
+					return;
+				}
 				el.addClass(HEADER_CLASS);
 				this.headerButtons.set(view, el);
 			});
-		} else {
-			this.removeHeaderButtons();
 		}
 
 		// Freshly added buttons have never been painted.

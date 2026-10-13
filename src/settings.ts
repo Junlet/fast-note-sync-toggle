@@ -13,8 +13,12 @@ import type FastNoteSyncTogglePlugin from "./main";
 
 /** Persisted plugin settings. */
 export interface ToggleSettings {
-	/** Show the switch in the note's header bar. */
+	/** Show the switch in a page's header bar at all. */
 	showHeaderButton: boolean;
+	/** Which pages get it. */
+	headerInMarkdown: boolean;
+	headerInCanvas: boolean;
+	headerInExcalidraw: boolean;
 	/** Also show it in the status bar. */
 	showStatusBar: boolean;
 	/** Announce the new state after every switch. */
@@ -23,9 +27,44 @@ export interface ToggleSettings {
 	reloadServices: boolean;
 }
 
+/**
+ * The pages that can carry the header switch.
+ *
+ * `viewType` values are Obsidian's own strings: `markdown` is the Markdown
+ * view, `canvas` is the core Canvas view, and `excalidraw` is what the
+ * Excalidraw plugin registers its drawing view under. A page whose type is not
+ * in this table simply gets no switch -- there is nothing to guess.
+ */
+export const HEADER_VIEW_TYPES: ReadonlyArray<{
+	key: "headerInMarkdown" | "headerInCanvas" | "headerInExcalidraw";
+	type: string;
+	label: string;
+}> = [
+	{ key: "headerInMarkdown", type: "markdown", label: "Markdown 笔记" },
+	{ key: "headerInCanvas", type: "canvas", label: "Canvas 画布" },
+	{ key: "headerInExcalidraw", type: "excalidraw", label: "Excalidraw 图纸" },
+];
+
+/**
+ * Collects the view types the settings currently allow.
+ *
+ * @param settings - Current settings.
+ * @returns The view types that should carry a switch.
+ */
+export function enabledHeaderViews(settings: ToggleSettings): Set<string> {
+	const out = new Set<string>();
+	for (const row of HEADER_VIEW_TYPES) {
+		if (settings[row.key]) out.add(row.type);
+	}
+	return out;
+}
+
 /** Settings used on first install and for any unusable stored value. */
 export const DEFAULT_SETTINGS: ToggleSettings = {
 	showHeaderButton: true,
+	headerInMarkdown: true,
+	headerInCanvas: true,
+	headerInExcalidraw: true,
 	showStatusBar: false,
 	showNotice: true,
 	reloadServices: false,
@@ -95,7 +134,7 @@ export class ToggleSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("在页面顶部显示开关")
 			.setDesc(
-				"在笔记右上角的按钮栏里放一个开关：锁 = 只读同步已开启，开锁 = 已关闭。" +
+				"在页面右上角的按钮栏里放一个开关：锁 = 只读同步已开启，开锁 = 已关闭。" +
 					"点击即可切换，鼠标悬停会显示当前状态。"
 			)
 			.addToggle((toggle) =>
@@ -103,8 +142,24 @@ export class ToggleSettingTab extends PluginSettingTab {
 					this.plugin.settings.showHeaderButton = value;
 					await this.plugin.saveSettings();
 					this.plugin.refresh();
+					this.display();
 				})
 			);
+
+		if (this.plugin.settings.showHeaderButton) {
+			for (const row of HEADER_VIEW_TYPES) {
+				new Setting(containerEl)
+					.setName(`↳ 在${row.label}里显示`)
+					.setClass("fns-toggle-sub")
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings[row.key]).onChange(async (value) => {
+							this.plugin.settings[row.key] = value;
+							await this.plugin.saveSettings();
+							this.plugin.refresh();
+						})
+					);
+			}
+		}
 
 		new Setting(containerEl)
 			.setName("在状态栏也显示")
