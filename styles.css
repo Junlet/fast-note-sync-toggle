@@ -1,0 +1,38 @@
+/*
+ * Fast Note Sync Toggle
+ *
+ * The plugin has no styling of its own beyond marking which state the switch is
+ * in; everything else is Obsidian's. The `is-active` class is applied by the
+ * plugin, and `is-missing` when Fast Note Sync cannot be found.
+ */
+
+.view-action.fns-readonly-toggle.is-active {
+	color: var(--text-accent);
+}
+
+.view-action.fns-readonly-toggle.is-missing {
+	color: var(--text-faint);
+}
+
+.fns-readonly-status {
+	cursor: pointer;
+}
+
+.fns-readonly-status.is-active {
+	color: var(--text-accent);
+}
+
+.fns-readonly-status.is-missing {
+	color: var(--text-faint);
+}
+
+.fns-toggle-note {
+	margin-bottom: 1em;
+	padding: 0.6em 0.75em;
+	border-left: 3px solid var(--interactive-accent);
+	border-radius: var(--radius-s);
+	background-color: var(--background-secondary);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	line-height: 1.5;
+}
